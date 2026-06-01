@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Workforce Analytics Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
+    <!-- THÊM THƯ VIỆN ĐỌC FILE CSV CHUẨN QUỐC TẾ -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    
+    <style>
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            background: linear-gradient(135deg, #f0f9ff 0%, #e0e7ff 100%);
+            overflow: hidden; 
+        }
+        
+        .smooth-transition { transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
+        .fade-in { animation: fadeIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(15px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .custom-scrollbar::-webkit-scrollbar { height: 8px; width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 4px; margin-bottom: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; cursor: pointer; }
+
+        .dropdown-panel {
+            visibility: hidden; opacity: 0; transform: translateY(-5px);
+            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .dropdown-panel.show { visibility: visible; opacity: 1; transform: translateY(0); }
+
+        #loading { 
+            position: fixed; inset: 0; background: linear-gradient(135deg, #ffffff, #f0f9ff); 
+            z-index: 999; display: flex; flex-direction: column; justify-content: center; align-items: center; 
+        }
+        .loader {
+            width: 50px; height: 50px; border: 5px solid #e2e8f0; border-bottom-color: #3b82f6;
+            border-radius: 50%; animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+
+        .glass-card {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            box-shadow: 0 10px 25px -5px rgba(59, 130, 246, 0.1), 0 8px 10px -6px rgba(59, 130, 246, 0.1);
+        }
+    </style>
+</head>
+<body class="h-screen w-screen flex flex-col text-slate-800">
+
+    <div id="loading">
+        <div class="loader mb-4"></div>
+        <h2 class="text-xl font-semibold text-blue-600">Đang đồng bộ dữ liệu hệ thống...</h2>
+    </div>
+
+    <!-- Header -->
+    <header class="bg-gradient-to-r from-blue-700 via-indigo-600 to-purple-600 h-16 shrink-0 flex items-center justify-between px-6 shadow-lg z-20">
+        <div class="flex items-center gap-3">
+            <div class="w-10 h-10 bg-white/20 backdrop-blur-sm rounded-xl flex items-center justify-center text-white shadow-inner border border-white/20">
+                <i class="fas fa-chart-pie text-lg"></i>
+            </div>
+            <h1 class="text-2xl font-bold text-white tracking-wide">Workforce Analytics</h1>
+        </div>
+        <div class="flex items-center gap-4">
+            <div class="text-right bg-white/10 px-4 py-1.5 rounded-lg border border-white/10">
+                <p class="text-xs text-blue-100 uppercase font-semibold tracking-wider mb-0.5">Tổng Quân Số</p>
+                <p class="text-3xl font-black text-cyan-300 leading-none drop-shadow-md" id="totalWorkersCount">0</p>
+            </div>
+        </div>
+    </header>
+
+    <!-- Filter Bar -->
+    <div class="bg-white/80 backdrop-blur-md border-b border-blue-100 h-14 shrink-0 flex items-center px-6 gap-4 z-10 shadow-sm relative">
+        <div class="text-sm font-bold text-indigo-500 uppercase tracking-wider mr-2 flex items-center gap-2">
+            <div class="w-6 h-6 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600"><i class="fas fa-filter text-xs"></i></div>
+            Lọc dữ liệu
+        </div>
+        
+        <div id="filterContainer" class="flex items-center gap-3"></div>
+
+        <button onclick="clearAllFiltersGlobal()" class="ml-auto text-sm text-rose-500 hover:text-white font-medium smooth-transition flex items-center gap-2 bg-rose-50 px-4 py-2 rounded-lg hover:bg-rose-500 border border-rose-100 hover:border-rose-500 shadow-sm hover:shadow-md">
+            <i class="fas fa-eraser"></i> Xóa tất cả bộ lọc
+        </button>
+    </div>
+
+    <!-- Main Content -->
+    <main class="flex-1 flex gap-6 p-6 overflow-hidden">
+        
+        <!-- Left: Donut Chart -->
+        <div class="w-1/3 glass-card rounded-3xl border border-white p-6 flex flex-col fade-in">
+            <div class="mb-2 border-b border-slate-100 pb-3">
+                <h2 class="text-xl font-bold text-slate-800 flex items-center gap-2">
+                    <i class="fas fa-circle-notch text-blue-500"></i> Cơ cấu Cấp bậc
+                </h2>
+                <p class="text-sm text-slate-500 mt-1">Tỷ lệ phân bổ theo nhóm thợ</p>
+            </div>
+            <div class="flex-1 relative flex justify-center items-center mt-4">
+                <canvas id="donutChart"></canvas>
+            </div>
+        </div>
+
+        <!-- Right: Stacked Bar Chart -->
+        <div class="w-2/3 glass-card rounded-3xl border border-white p-6 flex flex-col fade-in" style="animation-delay: 0.15s;">
+            <div class="mb-2 border-b border-slate-100 pb-3 flex justify-between items-end shrink-0">
+                <div>
+                    <h2 class="text-xl font-bold text-slate-800 flex items-center gap-2">
+                        <i class="fas fa-users text-indigo-500"></i> Chi tiết nhân sự theo Tổ Đội
+                    </h2>
+                    <p class="text-sm text-slate-500 mt-1" id="teamCountText">Đang tải số lượng tổ...</p>
+                </div>
+            </div>
+            
+            <div class="flex-1 relative w-full mt-2 overflow-x-auto overflow-y-hidden custom-scrollbar pb-2">
+                <div id="barChartContainer" style="height: 100%; min-width: 100%;">
+                    <canvas id="barChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+<script>
+const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vR89-7dtws4X7LO2BCKVFaoYFMsbcIqeBbrkx7JTQbgsp_XsUyehM1WmkDEMHa67SzF2V23g7VDhGHt/pub?output=csv';
+
+const JOBLEVEL_SORT_ORDER = [
+    'I', 'Nhóm I', 
+    'II', 'Nhóm II', 
+    'III', 'Nhóm III', 
+    'MC', 
+    'trưởng', 'Đốc công/Tổ trưởng', 
+    'Phụ', 'Thợ phụ'
+];
+
+const JOBLEVEL_COLORS = {
+    'I': '#3b82f6', 'Nhóm I': '#3b82f6',
+    'II': '#f59e0b', 'Nhóm II': '#f59e0b',
+    'III': '#10b981', 'Nhóm III': '#10b981',
+    'MC': '#ef4444',
+    'trưởng': '#ec4899', 'Đốc công/Tổ trưởng': '#ec4899',
+    'Phụ': '#8b5cf6', 'Thợ phụ': '#8b5cf6',
+    'Hàn đính': '#0ea5e9'
+};
+
+const FILTER_FIELDS = [
+    { key: 'DepartmentCode', label: 'Department' },
+    { key: 'Project', label: 'Project' },
+    { key: 'Discipline', label: 'Discipline' },
+    { key: 'HR_ReportTitle', label: 'Report Title' },
+    { key: 'AgencyCode', label: 'Agency' }
+];
+
+let rawData = [];
+let activeFilters = {}; 
+let charts = { donut: null, bar: null };
+
+Chart.register(ChartDataLabels);
+
+const centerTextPlugin = {
+    id: 'centerText',
+    beforeDraw: function(chart) {
+        if (chart.config.type !== 'doughnut') return;
+        const ctx = chart.ctx;
+        ctx.restore();
+        const total = chart.data.datasets[0].data.reduce((a, b) => a + b, 0);
+        const fontSize = (chart.height / 7).toFixed(2);
+        ctx.font = `900 ${fontSize}px 'Segoe UI', sans-serif`;
+        ctx.textBaseline = "middle";
+        ctx.fillStyle = "#1e293b"; 
+        const text = total.toString();
+        const textX = Math.round((chart.width - ctx.measureText(text).width) / 2);
+        const textY = chart.height / 2;
+        ctx.fillText(text, textX, textY);
+        ctx.save();
+    }
+};
+Chart.register(centerTextPlugin);
+
+// TÍCH HỢP PAPAPARSE: ĐỌC DỮ LIỆU CỰC CHUẨN XÁC, KHÔNG BAO GIỜ TRƯỢT CỘT
+function fetchData() {
+    Papa.parse(CSV_URL, {
+        download: true,
+        header: true,          // Tự động nhận diện dòng đầu tiên làm Header
+        skipEmptyLines: true,  // Bỏ qua các dòng trống hoàn toàn
+        complete: function(results) {
+            const data = [];
+            FILTER_FIELDS.forEach(f => activeFilters[f.key] = []);
+
+            results.data.forEach(row => {
+                let obj = {};
+                // Chuẩn hóa data: Xóa khoảng trắng thừa ở tên cột và giá trị
+                for (let key in row) {
+                    let cleanKey = key.trim();
+                    let val = row[key] ? row[key].trim() : '';
+                    if (val === '#N/A' || val === 'NULL') val = '';
+                    obj[cleanKey] = val;
+                }
+                
+                // Lưu dòng nếu có bất kỳ dữ liệu nào hợp lệ
+                if (Object.values(obj).some(val => val !== '')) {
+                    data.push(obj);
+                }
+            });
+
+            rawData = data;
+            document.getElementById('loading').style.opacity = '0';
+            setTimeout(() => document.getElementById('loading').style.display = 'none', 400);
+            
+            buildFiltersUI();
+            updateDashboard();
+        },
+        error: function(err) {
+            console.error('Lỗi khi đọc file CSV:', err);
+            document.getElementById('loading').innerHTML = '<h2 class="text-red-600 font-bold text-xl">Lỗi đọc dữ liệu từ Google Sheet!</h2>';
+        }
+    });
+}
+
+function buildFiltersUI() {
+    const container = document.getElementById('filterContainer');
+    let html = '';
+
+    FILTER_FIELDS.forEach((field) => {
+        const uniqueValues = [...new Set(rawData.map(item => item[field.key]))].filter(val => val !== '' && val !== undefined).sort();
+        
+        html += `
+            <div class="relative group dropdown-wrapper" id="dropdown-wrapper-${field.key}">
+                <button onclick="toggleDropdown('${field.key}')" class="flex items-center justify-between w-40 px-3.5 py-2 bg-white border border-slate-200 hover:border-blue-400 rounded-lg text-sm font-semibold text-slate-600 hover:text-blue-600 focus:ring-4 focus:ring-blue-50 smooth-transition shadow-sm">
+                    <span class="truncate">${field.label}</span>
+                    <i class="fas fa-chevron-down text-[10px] ml-2 opacity-70"></i>
+                </button>
+                
+                <div id="dropdown-${field.key}" class="dropdown-panel absolute top-full left-0 mt-2 w-64 bg-white/95 backdrop-blur-xl border border-white rounded-xl shadow-2xl z-50 overflow-hidden flex flex-col">
+                    <div class="p-3 border-b border-slate-100 bg-slate-50/50">
+                        <div class="relative">
+                            <i class="fas fa-search absolute left-3 top-2.5 text-slate-400 text-xs"></i>
+                            <input type="text" placeholder="Tìm kiếm..." onkeyup="searchFilter('${field.key}', this.value)" class="w-full pl-8 pr-3 py-1.5 text-sm border-none ring-1 ring-slate-200 rounded-md focus:ring-2 focus:ring-blue-500 bg-white shadow-inner">
+                        </div>
+                    </div>
+                    
+                    <div class="flex justify-between items-center px-3 py-2 bg-slate-100 border-b border-slate-200 text-xs font-semibold">
+                        <button onclick="selectAllLocal('${field.key}')" class="text-blue-600 hover:text-blue-800 flex items-center gap-1"><i class="fas fa-check-square"></i> Chọn tất cả</button>
+                        <button onclick="clearAllLocal('${field.key}')" class="text-rose-500 hover:text-rose-700 flex items-center gap-1"><i class="far fa-square"></i> Bỏ chọn</button>
+                    </div>
+
+                    <div class="max-h-52 overflow-y-auto p-2 custom-scrollbar" id="list-${field.key}">
+                        ${uniqueValues.map(val => `
+                            <label class="flex items-center gap-3 px-3 py-2 hover:bg-blue-50 rounded-lg cursor-pointer smooth-transition filter-item-${field.key}">
+                                <input type="checkbox" value="${val}" data-col="${field.key}" class="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500" onchange="handleCheck(this)">
+                                <span class="text-sm font-medium text-slate-700 truncate" title="${val}">${val}</span>
+                            </label>
+                        `).join('')}
+                    </div>
+                </div>
+            </div>
+        `;
+    });
+
+    container.innerHTML = html;
+}
+
+function selectAllLocal(key) {
+    const labels = document.querySelectorAll(`.filter-item-${key}`);
+    labels.forEach(label => {
+        if(label.style.display !== 'none') {
+            const checkbox = label.querySelector('input[type="checkbox"]');
+            checkbox.checked = true;
+            if (!activeFilters[key].includes(checkbox.value)) {
+                activeFilters[key].push(checkbox.value);
+            }
+        }
+    });
+    updateDashboard();
+}
+
+function clearAllLocal(key) {
+    const checkboxes = document.querySelectorAll(`.filter-item-${key} input[type="checkbox"]`);
+    checkboxes.forEach(cb => cb.checked = false);
+    activeFilters[key] = [];
+    updateDashboard();
+}
+
+function toggleDropdown(key) {
+    document.querySelectorAll('.dropdown-panel').forEach(panel => {
+        if(panel.id !== `dropdown-${key}`) panel.classList.remove('show');
+    });
+    document.getElementById(`dropdown-${key}`).classList.toggle('show');
+}
+
+document.addEventListener('click', function(event) {
+    if (!event.target.closest('.dropdown-wrapper')) {
+        document.querySelectorAll('.dropdown-panel').forEach(panel => panel.classList.remove('show'));
+    }
+});
+
+function searchFilter(key, searchText) {
+    const term = searchText.toLowerCase();
+    const labels = document.querySelectorAll(`.filter-item-${key}`);
+    labels.forEach(label => {
+        const text = label.textContent.toLowerCase();
+        label.style.display = text.includes(term) ? 'flex' : 'none';
+    });
+}
+
+function handleCheck(checkbox) {
+    const col = checkbox.getAttribute('data-col');
+    const val = checkbox.value;
+    if (checkbox.checked) activeFilters[col].push(val);
+    else activeFilters[col] = activeFilters[col].filter(v => v !== val);
+    updateDashboard();
+}
+
+function clearAllFiltersGlobal() {
+    document.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
+    document.querySelectorAll('input[type="text"]').forEach(input => { input.value = ''; searchFilter(input.closest('.dropdown-panel').id.replace('dropdown-',''), ''); });
+    FILTER_FIELDS.forEach(f => activeFilters[f.key] = []);
+    updateDashboard();
+}
+
+function customSortJoblevels(arr) {
+    return arr.sort((a, b) => {
+        let indexA = JOBLEVEL_SORT_ORDER.indexOf(a);
+        let indexB = JOBLEVEL_SORT_ORDER.indexOf(b);
+        if (indexA === -1) indexA = 999;
+        if (indexB === -1) indexB = 999;
+        return indexA - indexB;
+    });
+}
+
+function updateDashboard() {
+    const filteredData = rawData.filter(row => {
+        for (const col in activeFilters) {
+            if (activeFilters[col].length > 0 && !activeFilters[col].includes(row[col])) return false;
+        }
+        return true;
+    });
+
+    document.getElementById('totalWorkersCount').innerText = new Intl.NumberFormat('vi-VN').format(filteredData.length);
+
+    renderDonutChart(filteredData);
+    renderStackedBarChart(filteredData);
+}
+
+// Cải tiến lấy tên tổ: PapaParse đã xử lý khoảng trắng, chỉ cần gọi đúng tên cột "Tên Tổ"
+function getExactTeamName(item) {
+    // Duyệt qua các key, tìm key nào chữ thường giống "tên tổ"
+    const exactKey = Object.keys(item).find(key => key.toLowerCase() === 'tên tổ');
+    if (exactKey && item[exactKey] && item[exactKey] !== '') {
+        return item[exactKey];
+    }
+    return 'Chưa phân Tổ';
+}
+
+function renderDonutChart(data) {
+    const counts = {};
+    data.forEach(item => {
+        // Tìm cột Joblevel an toàn hơn
+        const jobKey = Object.keys(item).find(key => key.toLowerCase() === 'joblevel');
+        if(jobKey && item[jobKey]) {
+            let lvl = item[jobKey];
+            counts[lvl] = (counts[lvl] || 0) + 1;
+        }
+    });
+
+    let labels = Object.keys(counts);
+    labels = customSortJoblevels(labels);
+    const values = labels.map(l => counts[l]);
+    const bgColors = labels.map((l, index) => JOBLEVEL_COLORS[l] || `hsl(${index * 45}, 70%, 55%)`);
+
+    const ctx = document.getElementById('donutChart').getContext('2d');
+    if (charts.donut) charts.donut.destroy();
+    
+    charts.donut = new Chart(ctx, {
+        type: 'doughnut',
+        data: { labels, datasets: [{ data: values, backgroundColor: bgColors, borderWidth: 2, borderColor: '#ffffff' }] },
+        options: {
+            responsive: true, maintainAspectRatio: false, cutout: '70%', layout: { padding: 20 },
+            animation: { animateScale: true, animateRotate: true, duration: 1000, easing: 'easeOutQuart' },
+            plugins: {
+                legend: { display: false }, 
+                tooltip: { enabled: true, backgroundColor: 'rgba(15, 23, 42, 0.9)', titleFont: {size: 14}, bodyFont: {size: 14}, padding: 12, cornerRadius: 8 },
+                datalabels: {
+                    color: '#ffffff', backgroundColor: 'rgba(15, 23, 42, 0.7)', borderRadius: 6, font: { weight: 'bold', size: 11, family: 'Segoe UI' },
+                    padding: {top: 4, bottom: 4, left: 8, right: 8}, align: 'center', anchor: 'center',
+                    formatter: (value, ctx) => {
+                        let label = ctx.chart.data.labels[ctx.dataIndex];
+                        let displayLabel = ['I', 'II', 'III'].includes(label) ? 'Nhóm ' + label : label;
+                        let total = ctx.chart._metasets[ctx.datasetIndex].total;
+                        let percent = Math.round((value / total) * 100);
+                        return [displayLabel, `${value} (${percent}%)`];
+                    },
+                    display: function(context) {
+                        let value = context.dataset.data[context.dataIndex];
+                        let total = context.chart._metasets[context.datasetIndex].total;
+                        return (value / total) * 100 > 3; 
+                    }
+                }
+            }
+        }
+    });
+}
+
+function renderStackedBarChart(data) {
+    const teamsObj = {};
+    data.forEach(item => {
+        let team = getExactTeamName(item);
+        
+        const jobKey = Object.keys(item).find(key => key.toLowerCase() === 'joblevel');
+        let job = (jobKey && item[jobKey]) ? item[jobKey] : 'Khác';
+        
+        if (!teamsObj[team]) teamsObj[team] = { total: 0 };
+        teamsObj[team][job] = (teamsObj[team][job] || 0) + 1;
+        teamsObj[team].total += 1;
+    });
+
+    const sortedTeams = Object.keys(teamsObj).sort((a, b) => teamsObj[b].total - teamsObj[a].total);
+    document.getElementById('teamCountText').innerText = `Tổng cộng hiển thị: ${sortedTeams.length} Tổ`;
+
+    // Lọc lấy danh sách các Joblevel thực sự tồn tại, sau đó sắp xếp
+    const jobKeyExists = Object.keys(data[0] || {}).find(key => key.toLowerCase() === 'joblevel');
+    let activeJoblevels = [...new Set(data.map(item => item[jobKeyExists]).filter(Boolean))];
+    activeJoblevels = customSortJoblevels(activeJoblevels);
+    
+    const datasets = activeJoblevels.map((job, index) => {
+        return {
+            label: ['I', 'II', 'III'].includes(job) ? 'Nhóm ' + job : job,
+            data: sortedTeams.map(team => teamsObj[team][job] || 0),
+            backgroundColor: JOBLEVEL_COLORS[job] || `hsl(${index * 45}, 70%, 55%)`,
+            borderRadius: 2,
+            borderSkipped: false
+        };
+    });
+
+    const container = document.getElementById('barChartContainer');
+    // Mỗi tổ cho 45px chiều ngang
+    const minWidth = Math.max(container.parentElement.clientWidth, sortedTeams.length * 45); 
+    container.style.width = `${minWidth}px`;
+
+    const ctx = document.getElementById('barChart').getContext('2d');
+    if (charts.bar) charts.bar.destroy();
+
+    charts.bar = new Chart(ctx, {
+        type: 'bar',
+        data: { labels: sortedTeams, datasets: datasets },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            // Nới rộng đáy thêm 30px để tên tổ dài không bị che
+            layout: { padding: { bottom: 30 } }, 
+            animation: { duration: 1200, easing: 'easeOutQuart' },
+            scales: {
+                x: { 
+                    stacked: true, 
+                    grid: { display: false }, 
+                    ticks: { 
+                        autoSkip: false, 
+                        maxRotation: 45, minRotation: 45, 
+                        font: {size: 11, weight: '600', family: 'Segoe UI'} 
+                    } 
+                },
+                y: { stacked: true, border: { display: false }, grid: { color: '#f1f5f9' }, ticks: { precision: 0, font: {family: 'Segoe UI'} } }
+            },
+            plugins: {
+                legend: { 
+                    display: true, position: 'top', reverse: true, 
+                    labels: { usePointStyle: true, boxWidth: 8, padding: 15, font: { family: 'Segoe UI', size: 12, weight: '600' } } 
+                },
+                tooltip: {
+                    mode: 'index', intersect: false, backgroundColor: 'rgba(255,255,255,0.95)',
+                    titleColor: '#0f172a', bodyColor: '#334155', borderColor: '#e2e8f0', borderWidth: 1, padding: 12, cornerRadius: 8,
+                    callbacks: {
+                        footer: (tooltipItems) => {
+                            let total = tooltipItems.reduce((sum, item) => sum + item.parsed.y, 0);
+                            return '\nTổng cộng tổ: ' + total + ' người';
+                        }
+                    }
+                },
+                datalabels: {
+                    color: '#ffffff', font: { weight: 'bold', size: 10, family: 'Segoe UI' },
+                    textShadowBlur: 3, textShadowColor: 'rgba(0, 0, 0, 0.6)',
+                    display: function(context) { return context.dataset.data[context.dataIndex] > 2; }
+                }
+            }
+        }
+    });
+}
+
+// Chạy fetchData khi load trang
+window.onload = fetchData;
+</script>
+</body>
+</html>
